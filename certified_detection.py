@@ -59,8 +59,8 @@ else:
 testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=2)
 
 # TPR and CTPR
-certified = 0
 actual = 0
+certified = 0
 total = 0
 for i in range(len(os.listdir('{}_attack'.format(args.dataset)))):
 
@@ -111,7 +111,8 @@ for i in range(len(os.listdir('{}_attack'.format(args.dataset)))):
             idx = [j for j, label in enumerate(testset.labels) if label == c and keep[j] > 0]
             idxs.append(np.random.permutation(idx)[0])
 
-    prob_lb_aggre = 0
+    strs = []
+    deltas = []
     prob_actual_aggre = 0
     for idx in idxs:
         image = testset.__getitem__(idx)[0]
@@ -124,24 +125,23 @@ for i in range(len(os.listdir('{}_attack'.format(args.dataset)))):
             outputs = net(image_smoothed)
             _, predicted = outputs.max(1)
             prob = get_freq(predicted.detach().cpu().numpy(), outputs.size(1))
+            prob_actual_aggre += prob[target_class]
 
-            # Compute SLPV for the image with the backdoor trigger
+            # Compute STR and delta
             image_bd_smoothed = smooth(image_bd.to(device), N=1024, sigma=args.sigma)
             outputs_bd = net(image_bd_smoothed)
             _, predicted_bd = outputs_bd.max(1)
             prob_bd = get_freq(predicted_bd.detach().cpu().numpy(), outputs_bd.size(1))
-
-            # Compute lower bound
-            delta = torch.norm(image_bd - image).detach().cpu().numpy()
-            Gaussian = norm()
-            pt_lb = Gaussian.cdf(np.sqrt(2) * special.erfinv(2 * prob_bd[target_class] - 1) - delta / args.sigma)
-
-            prob_lb_aggre += pt_lb
-            prob_actual_aggre += prob[target_class]
-    prob_lb_aggre /= len(idxs)
-    prob_actual_aggre /= len(idxs)
-    if prob_lb_aggre > thres:
+            deltas.append(torch.norm(image_bd - image).detach().cpu().numpy())
+            strs.append(prob_bd[target_class])
+            
+    strs = np.asarray(strs)
+    deltas = np.asarray(deltas)
+    Pi = np.min(strs)
+    Delta = np.max(deltas)
+    if sigma * (Ginv(1 - thres) - Ginv(1 - pi)) - Delta > 0:
         certified += 1
+    prob_actual_aggre /= len(idxs)
     if prob_actual_aggre > thres:
         actual += 1
     total += 1
